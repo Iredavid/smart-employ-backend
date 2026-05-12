@@ -14,70 +14,11 @@ clf = joblib.load(BASE_DIR / "career_model.pkl")
 reg = joblib.load(BASE_DIR / "employability_model.pkl")
 career_encoder = joblib.load(BASE_DIR / "career_encoder.pkl")
 feature_columns = joblib.load(BASE_DIR / "feature_columns.pkl")
-dataset = pd.read_csv(BASE_DIR / "aaua_production_dataset.csv")
-
-
-def build_career_requirements():
-
-    requirements = {}
-
-    allowed_features = [
-        "CGPA",
-        "Internship",
-        "Python",
-        "Java",
-        "WebDev",
-        "DataAnalysis",
-        "MachineLearning",
-        "CyberSecurity",
-        "Networking",
-        "LabSkills",
-        "Research",
-        "Teaching",
-        "ProjectManagement",
-        "Communication",
-        "Marketing",
-        "GIS",
-        "UIUX",
-        "DatabaseManagement",
-        "FinancialAnalysis",
-        "CriticalThinking"
-    ]
-
-    careers = dataset["Career"].unique()
-
-    for career in careers:
-
-        career_data = dataset[
-            dataset["Career"] == career
-        ]
-
-        # Top 20% performers
-        threshold = career_data[
-            "EmployabilityScore"
-        ].quantile(0.80)
-
-        top_students = career_data[
-            career_data["EmployabilityScore"] >= threshold
-        ]
-
-        profile = {}
-
-        for feature in allowed_features:
-
-            profile[feature] = top_students[
-                feature
-            ].mean()
-
-        requirements[career] = profile
-
-    return requirements
-
-
-career_requirements = build_career_requirements()
-
+career_requirements = joblib.load(BASE_DIR / "career_requirements.pkl")
 
 # 🔥 Function to prepare input correctly
+
+
 def encode_skills(skills):
     features = {
         "Python": 0,
@@ -109,6 +50,8 @@ def encode_skills(skills):
             features["Java"] = 1
         elif "web" in s:
             features["WebDev"] = 1
+        elif "database" in s:
+            features["DatabaseManagement"] = 1
         elif "data" in s or "excel" in s:
             features["DataAnalysis"] = 1
         elif "machine learning" in s:
@@ -132,9 +75,7 @@ def encode_skills(skills):
         elif "gis" in s:
             features["GIS"] = 1
         elif "ux" in s:
-            features["UI/UX Design"] = 1
-        elif "database" in s:
-            features["DatabaseManagement"] = 1
+            features["UIUX"] = 1
         elif "financial" in s:
             features["FinancialAnalysis"] = 1
         elif "critical" in s:
@@ -152,7 +93,6 @@ def prepare_input(data):
 
     # Encode skills
     skill_features = encode_skills(skills)
-
     # Create full feature dictionary
     input_dict = {col: 0 for col in feature_columns}
 
@@ -222,7 +162,6 @@ def generate_recommendations(input_df, career):
 def predict():
     try:
         data = request.get_json()
-
         input_df = prepare_input(data)
 
         if input_df is None:
@@ -232,17 +171,17 @@ def predict():
         career_pred = clf.predict(input_df)[0]
         career = career_encoder.inverse_transform([career_pred])[0]
 
-        # employability = reg.predict(input_df)[0]
         max_score = 110  # approximate max
         employability = int((reg.predict(input_df)[0] / max_score) * 100)
         recommendations = generate_recommendations(
             input_df,
             career
         )
+
         return jsonify({
             "career": career,
             "employability_score": round(float(employability), 2),
-            "recommendations": recommendations
+            "recommendations": recommendations,
         })
 
     except Exception as e:
@@ -252,4 +191,3 @@ def predict():
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-    app.run(debug=True)
