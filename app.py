@@ -17,9 +17,96 @@ feature_columns = joblib.load(BASE_DIR / "feature_columns.pkl")
 career_requirements = joblib.load(BASE_DIR / "career_requirements.pkl")
 
 # 🔥 Function to prepare input correctly
+FEATURE_LABELS = {
+    "CGPA": "Academic Performance",
+    "Internship": "Industry Experience",
+
+    "Python": "Python Programming",
+    "Java": "Java Development",
+    "WebDev": "Web Development",
+    "DataAnalysis": "Data Analysis",
+    "MachineLearning": "Machine Learning",
+    "CyberSecurity": "Cybersecurity",
+    "Networking": "Networking",
+
+    "LabSkills": "Laboratory Skills",
+    "Research": "Research Skills",
+    "Teaching": "Teaching Skills",
+
+    "ProjectManagement": "Project Management",
+    "Communication": "Communication Skills",
+
+    "Marketing": "Marketing",
+    "GIS": "GIS Analysis",
+
+    "UIUX": "UI/UX Design",
+
+    "DatabaseManagement": "Database Management",
+
+    "FinancialAnalysis": "Financial Analysis",
+
+    "CriticalThinking": "Critical Thinking"
+}
+
+SKILL_MAP = {
+
+    # Universal skills
+    "Communication": "Communication",
+    "Research Skills": "Research",
+    "Critical Thinking": "CriticalThinking",
+    "Data Analysis": "DataAnalysis",
+    "Networking": "Networking",
+
+    # Computing
+    "Python": "Python",
+    "Java": "Java",
+    "Web Development": "WebDev",
+    "Machine Learning": "MachineLearning",
+    "Cybersecurity": "CyberSecurity",
+    "Database Management": "DatabaseManagement",
+    "UI/UX Design": "UIUX",
+
+    # Science
+    "Laboratory Skills": "LabSkills",
+    "Statistical Analysis": "DataAnalysis",
+    "Technical Writing": "Research",
+
+    # Education
+    "Teaching": "Teaching",
+    "Counselling": "Communication",
+    "Classroom Management": "ProjectManagement",
+    "Curriculum Development": "Teaching",
+
+    # Social Sciences
+    "Policy Analysis": "CriticalThinking",
+
+    # Management
+    "Financial Analysis": "FinancialAnalysis",
+    "Project Management": "ProjectManagement",
+    "Marketing": "Marketing",
+    "Accounting Software": "FinancialAnalysis",
+
+    # Arts
+    "Writing": "Communication",
+    "Content Creation": "Communication",
+
+    # Agriculture
+    "Field Work": "LabSkills",
+    "Environmental Analysis": "Research",
+
+    # Environmental Design
+    "GIS": "GIS",
+    "Urban Planning": "ProjectManagement",
+
+    # Law
+    "Legal Research": "Research",
+    "Legal Writing": "Communication",
+    "Argumentation": "CriticalThinking",
+}
 
 
 def encode_skills(skills):
+
     features = {
         "Python": 0,
         "Java": 0,
@@ -42,44 +129,15 @@ def encode_skills(skills):
     }
 
     for skill in skills:
-        s = skill.lower().strip()
+        model_feature = SKILL_MAP.get(
+            skill
+        )
 
-        if "python" in s:
-            features["Python"] = 1
-        elif "java" in s:
-            features["Java"] = 1
-        elif "web" in s:
-            features["WebDev"] = 1
-        elif "database" in s:
-            features["DatabaseManagement"] = 1
-        elif "data" in s or "excel" in s:
-            features["DataAnalysis"] = 1
-        elif "machine learning" in s:
-            features["MachineLearning"] = 1
-        elif "cyber" in s:
-            features["CyberSecurity"] = 1
-        elif "network" in s:
-            features["Networking"] = 1
-        elif "lab" in s:
-            features["LabSkills"] = 1
-        elif "research" in s:
-            features["Research"] = 1
-        elif "teach" in s:
-            features["Teaching"] = 1
-        elif "manage" in s:
-            features["ProjectManagement"] = 1
-        elif "communicat" in s or "speak" in s:
-            features["Communication"] = 1
-        elif "market" in s:
-            features["Marketing"] = 1
-        elif "gis" in s:
-            features["GIS"] = 1
-        elif "ux" in s:
-            features["UIUX"] = 1
-        elif "financial" in s:
-            features["FinancialAnalysis"] = 1
-        elif "critical" in s:
-            features["CriticalThinking"] = 1
+        if model_feature:
+
+            features[
+                model_feature
+            ] = 1
 
     return features
 
@@ -118,44 +176,218 @@ def prepare_input(data):
 
 def generate_recommendations(input_df, career):
 
-    recommendations = []
-
     user = input_df.iloc[0].to_dict()
 
-    target = career_requirements.get(career)
+    target = career_requirements.get(career, {})
 
-    if not target:
-        return []
+    strengths = []
+    improvements = []
 
-    for feature, ideal_value in target.items():
+    NON_BINARY_FEATURES = [
+        "CGPA",
+        "Internship"
+    ]
 
-        user_value = user.get(feature, 0)
+    for feature, profile in target.items():
 
-        if feature == "CGPA":
+        current = user.get(feature, 0)
 
-            if user_value < ideal_value:
+        minimum = profile.get("minimum", 0)
+        ideal = profile.get("ideal", 1)
+        importance = profile.get("importance", 1)
 
-                recommendations.append(
-                    f"Improve CGPA (target: {round(ideal_value, 2)})"
-                )
+        # =========================
+        # SKILL FEATURES
+        # =========================
+        if feature not in NON_BINARY_FEATURES:
 
+            # User has skill
+            if current == 1:
+
+                strengths.append({
+                    "feature": feature,
+                    "score": current,
+                    "importance": importance
+                })
+
+            # User lacks skill
+            else:
+
+                # ONLY recommend important skills
+                if importance >= 0.6:
+
+                    improvements.append({
+                        "feature": feature,
+                        "gap": 1,
+                        "priority": round(importance * 10, 2),
+                        "target": "Required",
+                        "importance": importance
+                    })
+
+        # =========================
+        # CGPA
+        # =========================
+        elif feature == "CGPA":
+
+            if current >= minimum:
+
+                strengths.append({
+                    "feature": feature,
+                    "score": round(current, 2),
+                    "importance": importance
+                })
+
+            else:
+
+                gap = max(0, ideal - current)
+
+                # HIGHER PRIORITY WEIGHT
+                priority = gap * importance * 15
+
+                improvements.append({
+                    "feature": feature,
+                    "gap": round(gap, 2),
+                    "priority": round(priority, 2),
+                    "target": round(ideal, 2),
+                    "importance": importance
+                })
+
+        # =========================
+        # INTERNSHIP
+        # =========================
         elif feature == "Internship":
 
-            if ideal_value >= 0.6 and user_value == 0:
+            # User HAS internship
+            if current == 1:
 
-                recommendations.append(
-                    "Gain internship experience"
-                )
+                strengths.append({
+                    "feature": feature,
+                    "score": current,
+                    "importance": importance
+                })
 
+            # User DOES NOT have internship
+            else:
+
+                # ONLY recommend if internship is important
+                if importance >= 0.7:
+
+                    improvements.append({
+                        "feature": feature,
+                        "gap": 1,
+                        "priority": round(importance * 8, 2),
+                        "target": "Recommended",
+                        "importance": importance
+                    })
+
+    # =========================
+    # SORTING
+    # =========================
+
+    strengths.sort(
+        key=lambda x: x["importance"],
+        reverse=True
+    )
+
+    improvements.sort(
+        key=lambda x: x["priority"],
+        reverse=True
+    )
+
+    return {
+        "strengths": strengths[:5],
+        "gaps": improvements[:5]
+    }
+
+
+def generate_feedback(career, employability, analysis):
+
+    strengths = [
+        FEATURE_LABELS.get(s["feature"], s["feature"])
+        for s in analysis["strengths"][:4]
+    ]
+
+    gaps = analysis["gaps"]
+
+    actions = []
+
+    for gap in gaps:
+        skill = FEATURE_LABELS.get(gap["feature"], gap["feature"])
+
+        feature = gap["feature"]
+
+        priority = "Medium"
+
+        if gap["priority"] >= 10:
+            priority = "High"
+
+        elif gap["priority"] <= 5:
+            priority = "Low"
+
+       # =========================
+       # CGPA
+       # =========================
+        if feature == "CGPA":
+
+            actions.append({
+                "title": "Improve Academic Performance",
+                "detail": (
+                    f"Focus on improving your CGPA toward "
+                    f"{gap['target']} to strengthen eligibility "
+                    f"for competitive opportunities."
+                ),
+                "priority": priority
+            })
+
+    # =========================
+    # INTERNSHIP
+    # =========================
+        elif feature == "Internship":
+
+            actions.append({
+                "title": "Gain Industry Experience",
+                "detail": (
+                    "Participate in internships, SIWES, "
+                    "or real-world projects to improve "
+                    "industry readiness."
+                ),
+                "priority": priority
+            })
+
+    # =========================
+    # SKILLS
+    # =========================
         else:
 
-            if ideal_value >= 0.6 and user_value == 0:
+            actions.append({
+                "title": f"Develop {skill}",
+                "detail": (
+                    f"Build stronger {skill.lower()} capability "
+                    "through hands-on projects, certifications, "
+                    "and practical experience."
+                ),
+                "priority": priority
+            })
 
-                recommendations.append(
-                    f"Improve {feature}"
-                )
+    return {
+        "summary": {
+            "career": career,
+            "employability_score": f"{employability}%",
+            "message": (
+                f"You show a strong alignment with a {career} pathway. "
+                f"Your profile demonstrates solid potential with clear growth areas."
+            )
+        },
 
-    return recommendations[:5]
+        "strengths": strengths,
+
+        "action_plan": actions,
+
+        "closing_note": (
+            "Improving the highlighted areas will significantly increase your competitiveness "
+            f"for a {career} role."
+        )
+    }
 
 
 @app.route('/predict', methods=['POST'])
@@ -181,7 +413,11 @@ def predict():
         return jsonify({
             "career": career,
             "employability_score": round(float(employability), 2),
-            "recommendations": recommendations,
+            "recommendations": generate_feedback(
+                career,
+                employability,
+                recommendations
+            )
         })
 
     except Exception as e:
