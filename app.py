@@ -174,11 +174,115 @@ def prepare_input(data):
     return pd.DataFrame([input_dict])
 
 
-def generate_recommendations(input_df, career):
+FACULTY_SKILLS_RAW = {
+
+    "Computing": [
+        "Python",
+        "Java",
+        "Web Development",
+        "Machine Learning",
+        "Cybersecurity",
+        "Database Management",
+        "UI/UX Design",
+        "Data Analysis",
+        "Networking"
+    ],
+
+    "Science": [
+        "Laboratory Skills",
+        "Statistical Analysis",
+        "Technical Writing",
+        "Research Skills",
+        "Critical Thinking"
+    ],
+
+    "Education": [
+        "Teaching",
+        "Counselling",
+        "Classroom Management",
+        "Curriculum Development",
+        "Communication"
+    ],
+
+    "Social Sciences": [
+        "Policy Analysis",
+        "Argumentation",
+        "Research Skills",
+        "Critical Thinking",
+        "Communication"
+    ],
+
+    "Management Sciences": [
+        "Financial Analysis",
+        "Project Management",
+        "Marketing",
+        "Accounting Software",
+        "Communication"
+    ],
+
+    "Arts": [
+        "Writing",
+        "Content Creation",
+        "Communication",
+        "Critical Thinking",
+        "Research Skills"
+    ],
+
+    "Agriculture": [
+        "Field Work",
+        "Environmental Analysis",
+        "Research Skills",
+        "Data Analysis"
+    ],
+
+    "Environmental Design": [
+        "GIS",
+        "Urban Planning",
+        "Project Management",
+        "Research Skills"
+    ],
+
+    "Law": [
+        "Legal Research",
+        "Legal Writing",
+        "Argumentation",
+        "Critical Thinking",
+        "Communication"
+    ]
+}
+
+FACULTY_SKILLS = {}
+
+for faculty, skills in FACULTY_SKILLS_RAW.items():
+
+    encoded_skills = []
+
+    for skill in skills:
+
+        encoded_feature = SKILL_MAP.get(skill)
+
+        if encoded_feature:
+            encoded_skills.append(
+                encoded_feature
+            )
+
+    FACULTY_SKILLS[faculty] = list(
+        set(encoded_skills)
+    )
+
+
+def generate_recommendations(
+    input_df,
+    career,
+    department=None
+):
 
     user = input_df.iloc[0].to_dict()
 
-    target = career_requirements.get(career, {})
+    target = career_requirements.get(
+        career,
+        {}
+    )
 
     strengths = []
     improvements = []
@@ -188,116 +292,514 @@ def generate_recommendations(input_df, career):
         "Internship"
     ]
 
+    allowed_skills = []
+
+    if department:
+        allowed_skills = FACULTY_SKILLS.get(
+            department,
+            []
+        )
+
     for feature, profile in target.items():
 
         current = user.get(feature, 0)
 
         minimum = profile.get("minimum", 0)
+
         ideal = profile.get("ideal", 1)
-        importance = profile.get("importance", 1)
+
+        importance = profile.get(
+            "importance",
+            0
+        )
+
+        frequency = profile.get(
+            "frequency",
+            0
+        )
 
         # =========================
         # SKILL FEATURES
         # =========================
+
         if feature not in NON_BINARY_FEATURES:
 
-            # User has skill
-            if current == 1:
+            # Skip unrealistic skills ONLY if
+            # importance is extremely low
+            if (
+                allowed_skills
+                and feature not in allowed_skills
+                and importance < 0.25
+            ):
+                continue
+
+            # =========================
+            # STRENGTHS
+            # =========================
+
+            if (
+                current == 1
+                and importance >= 0.2
+            ):
 
                 strengths.append({
+
                     "feature": feature,
-                    "score": current,
-                    "importance": importance
+
+                    "importance": importance,
+
+                    "frequency": frequency,
+
+                    "score": round(
+                        importance * max(frequency, 0.3),
+                        3
+                    )
                 })
 
-            # User lacks skill
-            else:
+            # =========================
+            # IMPROVEMENTS
+            # =========================
 
-                # ONLY recommend important skills
-                if importance >= 0.6:
+            elif current == 0:
+
+                # Dynamic gap score
+                gap_score = (
+                    (
+                        importance * 0.7
+                    )
+                    +
+                    (
+                        frequency * 0.3
+                    )
+                ) * 10
+
+                # More forgiving threshold
+                if gap_score >= 2:
 
                     improvements.append({
+
                         "feature": feature,
+
                         "gap": 1,
-                        "priority": round(importance * 10, 2),
-                        "target": "Required",
-                        "importance": importance
+
+                        "priority": round(
+                            gap_score,
+                            2
+                        ),
+
+                        "target": "Recommended",
+
+                        "importance": importance,
+
+                        "frequency": frequency
                     })
 
         # =========================
         # CGPA
         # =========================
+
         elif feature == "CGPA":
 
             if current >= minimum:
 
                 strengths.append({
+
                     "feature": feature,
-                    "score": round(current, 2),
-                    "importance": importance
+
+                    "importance": importance,
+
+                    "score": round(
+                        current,
+                        2
+                    )
                 })
 
             else:
 
-                gap = max(0, ideal - current)
+                gap = max(
+                    0,
+                    ideal - current
+                )
 
-                # HIGHER PRIORITY WEIGHT
-                priority = gap * importance * 15
+                priority = (
+                    gap
+                    * max(importance, 0.5)
+                    * 12
+                )
 
                 improvements.append({
+
                     "feature": feature,
-                    "gap": round(gap, 2),
-                    "priority": round(priority, 2),
-                    "target": round(ideal, 2),
+
+                    "gap": round(
+                        gap,
+                        2
+                    ),
+
+                    "priority": round(
+                        priority,
+                        2
+                    ),
+
+                    "target": round(
+                        ideal,
+                        2
+                    ),
+
                     "importance": importance
                 })
 
         # =========================
         # INTERNSHIP
         # =========================
+
         elif feature == "Internship":
 
-            # User HAS internship
             if current == 1:
 
                 strengths.append({
+
                     "feature": feature,
-                    "score": current,
+
+                    "importance": importance,
+
+                    "score": 1
+                })
+
+            else:
+
+                improvements.append({
+
+                    "feature": feature,
+
+                    "gap": 1,
+
+                    "priority": round(
+                        max(
+                            5,
+                            importance * 10
+                        ),
+                        2
+                    ),
+
+                    "target": "Recommended",
+
                     "importance": importance
                 })
 
-            # User DOES NOT have internship
-            else:
+    # =========================
+    # FALLBACK SYSTEM
+    # =========================
 
-                # ONLY recommend if internship is important
-                if importance >= 0.7:
+    # Guarantee recommendations always exist
 
-                    improvements.append({
-                        "feature": feature,
-                        "gap": 1,
-                        "priority": round(importance * 8, 2),
-                        "target": "Recommended",
-                        "importance": importance
-                    })
+    if len(improvements) == 0:
+
+        fallback_features = sorted(
+
+            target.items(),
+
+            key=lambda x: (
+                x[1].get(
+                    "importance",
+                    0
+                )
+            ),
+
+            reverse=True
+        )
+
+        for feature, profile in fallback_features:
+
+            if (
+                feature not in NON_BINARY_FEATURES
+                and user.get(feature, 0) == 0
+            ):
+
+                improvements.append({
+
+                    "feature": feature,
+
+                    "gap": 1,
+
+                    "priority": 3,
+
+                    "target": "Recommended",
+
+                    "importance": profile.get(
+                        "importance",
+                        0
+                    )
+                })
+
+            if len(improvements) >= 3:
+                break
 
     # =========================
     # SORTING
     # =========================
 
     strengths.sort(
-        key=lambda x: x["importance"],
+
+        key=lambda x: (
+            x["importance"]
+        ),
+
         reverse=True
     )
 
     improvements.sort(
-        key=lambda x: x["priority"],
+
+        key=lambda x: (
+            x["priority"]
+        ),
+
         reverse=True
     )
 
     return {
+
         "strengths": strengths[:5],
+
         "gaps": improvements[:5]
     }
+
+# def generate_recommendations(
+#     input_df,
+#     career,
+#     department=None
+# ):
+
+#     user = input_df.iloc[0].to_dict()
+
+#     target = career_requirements.get(
+#         career,
+#         {}
+#     )
+
+#     strengths = []
+#     improvements = []
+
+#     NON_BINARY_FEATURES = [
+#         "CGPA",
+#         "Internship"
+#     ]
+
+#     allowed_skills = []
+
+#     if department:
+#         allowed_skills = FACULTY_SKILLS.get(
+#             department,
+#             []
+#         )
+
+#     for feature, profile in target.items():
+
+#         current = user.get(feature, 0)
+
+#         minimum = profile.get("minimum", 0)
+
+#         ideal = profile.get("ideal", 1)
+
+#         importance = profile.get(
+#             "importance",
+#             0
+#         )
+
+#         frequency = profile.get(
+#             "frequency",
+#             0
+#         )
+
+#         # =========================
+#         # SKILL FEATURES
+#         # =========================
+
+#         if feature not in NON_BINARY_FEATURES:
+
+#             # suppress unrealistic skills
+#             if (
+#                 allowed_skills
+#                 and feature not in allowed_skills
+#                 and importance < 0.25
+#             ):
+#                 continue
+
+#             # REAL strengths only
+#             if (
+#                 current == 1
+#                 and importance >= 0.2
+#                 # and frequency >= 0.5
+#             ):
+
+#                 strengths.append({
+
+#                     "feature": feature,
+
+#                     "importance": importance,
+
+#                     "frequency": frequency,
+
+#                     "score": round(
+#                         importance * max(frequency, 0.3),
+#                         3
+#                     )
+#                 })
+
+#             # Missing important skills
+#             elif (
+#                 current == 0
+#                 and importance >= 0.45
+#                 and frequency >= 0.5
+#             ):
+
+#                 gap_score = (
+#                     importance
+#                     * frequency
+#                     * 10
+#                 )
+
+#                 improvements.append({
+
+#                     "feature": feature,
+
+#                     "gap": 1,
+
+#                     "priority": round(
+#                         gap_score,
+#                         2
+#                     ),
+
+#                     "target": "Recommended",
+
+#                     "importance": importance,
+
+#                     "frequency": frequency
+#                 })
+
+#         # =========================
+#         # CGPA
+#         # =========================
+
+#         elif feature == "CGPA":
+
+#             if current >= minimum:
+
+#                 strengths.append({
+
+#                     "feature": feature,
+
+#                     "importance": importance,
+
+#                     "score": round(
+#                         current,
+#                         2
+#                     )
+#                 })
+
+#             else:
+
+#                 gap = max(
+#                     0,
+#                     ideal - current
+#                 )
+
+#                 priority = (
+#                     gap
+#                     * importance
+#                     * 15
+#                 )
+
+#                 improvements.append({
+
+#                     "feature": feature,
+
+#                     "gap": round(
+#                         gap,
+#                         2
+#                     ),
+
+#                     "priority": round(
+#                         priority,
+#                         2
+#                     ),
+
+#                     "target": round(
+#                         ideal,
+#                         2
+#                     ),
+
+#                     "importance": importance
+#                 })
+
+#         # =========================
+#         # INTERNSHIP
+#         # =========================
+
+#         elif feature == "Internship":
+
+#             if current == 1:
+
+#                 strengths.append({
+
+#                     "feature": feature,
+
+#                     "importance": importance,
+
+#                     "score": 1
+#                 })
+
+#             else:
+
+#                 priority = max(
+#                     6,
+#                     importance * 10
+#                 )
+
+#                 improvements.append({
+
+#                     "feature": feature,
+
+#                     "gap": 1,
+
+#                     "priority": round(
+#                         priority,
+#                         2
+#                     ),
+
+#                     "target": "Recommended",
+
+#                     "importance": importance
+#                 })
+
+#     # =========================
+#     # SORTING
+#     # =========================
+
+#     strengths.sort(
+
+#         key=lambda x: (
+#             x["importance"]
+#         ),
+
+#         reverse=True
+#     )
+
+#     improvements.sort(
+
+#         key=lambda x: (
+#             x["priority"]
+#         ),
+
+#         reverse=True
+#     )
+
+#     return {
+
+#         "strengths": strengths[:5],
+
+#         "gaps": improvements[:5]
+#     }
 
 
 def generate_feedback(career, employability, analysis):
@@ -407,7 +909,8 @@ def predict():
         employability = int((reg.predict(input_df)[0] / max_score) * 100)
         recommendations = generate_recommendations(
             input_df,
-            career
+            career,
+            data.get("faculty")
         )
 
         return jsonify({
