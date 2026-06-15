@@ -60,7 +60,8 @@ def build_career_requirements():
                 "EmployabilityScore"
             ] >= threshold
         ]
-
+        if len(top_students) < 10:
+            top_students = career_data
         profile = {}
 
         raw_importance_scores = {}
