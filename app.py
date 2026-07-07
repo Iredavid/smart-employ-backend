@@ -3,7 +3,13 @@ from flask_cors import CORS
 import joblib
 import pandas as pd
 from pathlib import Path
+from chatBot import chat, initialize_chat
 import os
+import numpy as np
+import traceback
+# from dotenv import load_dotenv
+
+# load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -564,243 +570,6 @@ def generate_recommendations(
         "gaps": improvements[:5]
     }
 
-# def generate_recommendations(
-#     input_df,
-#     career,
-#     department=None
-# ):
-
-#     user = input_df.iloc[0].to_dict()
-
-#     target = career_requirements.get(
-#         career,
-#         {}
-#     )
-
-#     strengths = []
-#     improvements = []
-
-#     NON_BINARY_FEATURES = [
-#         "CGPA",
-#         "Internship"
-#     ]
-
-#     allowed_skills = []
-
-#     if department:
-#         allowed_skills = FACULTY_SKILLS.get(
-#             department,
-#             []
-#         )
-
-#     for feature, profile in target.items():
-
-#         current = user.get(feature, 0)
-
-#         minimum = profile.get("minimum", 0)
-
-#         ideal = profile.get("ideal", 1)
-
-#         importance = profile.get(
-#             "importance",
-#             0
-#         )
-
-#         frequency = profile.get(
-#             "frequency",
-#             0
-#         )
-
-#         # =========================
-#         # SKILL FEATURES
-#         # =========================
-
-#         if feature not in NON_BINARY_FEATURES:
-
-#             # suppress unrealistic skills
-#             if (
-#                 allowed_skills
-#                 and feature not in allowed_skills
-#                 and importance < 0.25
-#             ):
-#                 continue
-
-#             # REAL strengths only
-#             if (
-#                 current == 1
-#                 and importance >= 0.2
-#                 # and frequency >= 0.5
-#             ):
-
-#                 strengths.append({
-
-#                     "feature": feature,
-
-#                     "importance": importance,
-
-#                     "frequency": frequency,
-
-#                     "score": round(
-#                         importance * max(frequency, 0.3),
-#                         3
-#                     )
-#                 })
-
-#             # Missing important skills
-#             elif (
-#                 current == 0
-#                 and importance >= 0.45
-#                 and frequency >= 0.5
-#             ):
-
-#                 gap_score = (
-#                     importance
-#                     * frequency
-#                     * 10
-#                 )
-
-#                 improvements.append({
-
-#                     "feature": feature,
-
-#                     "gap": 1,
-
-#                     "priority": round(
-#                         gap_score,
-#                         2
-#                     ),
-
-#                     "target": "Recommended",
-
-#                     "importance": importance,
-
-#                     "frequency": frequency
-#                 })
-
-#         # =========================
-#         # CGPA
-#         # =========================
-
-#         elif feature == "CGPA":
-
-#             if current >= minimum:
-
-#                 strengths.append({
-
-#                     "feature": feature,
-
-#                     "importance": importance,
-
-#                     "score": round(
-#                         current,
-#                         2
-#                     )
-#                 })
-
-#             else:
-
-#                 gap = max(
-#                     0,
-#                     ideal - current
-#                 )
-
-#                 priority = (
-#                     gap
-#                     * importance
-#                     * 15
-#                 )
-
-#                 improvements.append({
-
-#                     "feature": feature,
-
-#                     "gap": round(
-#                         gap,
-#                         2
-#                     ),
-
-#                     "priority": round(
-#                         priority,
-#                         2
-#                     ),
-
-#                     "target": round(
-#                         ideal,
-#                         2
-#                     ),
-
-#                     "importance": importance
-#                 })
-
-#         # =========================
-#         # INTERNSHIP
-#         # =========================
-
-#         elif feature == "Internship":
-
-#             if current == 1:
-
-#                 strengths.append({
-
-#                     "feature": feature,
-
-#                     "importance": importance,
-
-#                     "score": 1
-#                 })
-
-#             else:
-
-#                 priority = max(
-#                     6,
-#                     importance * 10
-#                 )
-
-#                 improvements.append({
-
-#                     "feature": feature,
-
-#                     "gap": 1,
-
-#                     "priority": round(
-#                         priority,
-#                         2
-#                     ),
-
-#                     "target": "Recommended",
-
-#                     "importance": importance
-#                 })
-
-#     # =========================
-#     # SORTING
-#     # =========================
-
-#     strengths.sort(
-
-#         key=lambda x: (
-#             x["importance"]
-#         ),
-
-#         reverse=True
-#     )
-
-#     improvements.sort(
-
-#         key=lambda x: (
-#             x["priority"]
-#         ),
-
-#         reverse=True
-#     )
-
-#     return {
-
-#         "strengths": strengths[:5],
-
-#         "gaps": improvements[:5]
-#     }
-
 
 def generate_feedback(career, employability, analysis):
 
@@ -892,6 +661,17 @@ def generate_feedback(career, employability, analysis):
     }
 
 
+def generate_skill_gaps(analysis):
+
+    return [
+        FEATURE_LABELS.get(
+            gap["feature"],
+            gap["feature"]
+        )
+        for gap in analysis["gaps"]
+    ]
+
+
 @app.route('/predict', methods=['POST'])
 def predict():
     try:
@@ -902,28 +682,71 @@ def predict():
             return jsonify({"error": "Invalid department"}), 400
 
         # Predictions
-        career_pred = clf.predict(input_df)[0]
-        career = career_encoder.inverse_transform([career_pred])[0]
-
+        # career_pred = clf.predict(input_df)[0]
+        probs = clf.predict_proba(input_df)[0]
+        top_indices = np.argsort(probs)[::-1][:5]
+        top_career_matches = []
+        best_analysis = None
+        for i, idx in enumerate(top_indices):
+            career_name = career_encoder.inverse_transform([idx])[0]
+            analysis = generate_recommendations(
+                input_df,
+                career_name,
+                data.get("faculty")
+            )
+            if i == 0:
+                best_analysis = analysis
+                career = career_name
+                career_score = round(float(probs[idx] * 100), 1)
+            else:
+                top_career_matches.append({
+                    "career": career_name,
+                    "score": round(float(probs[idx] * 100), 1),
+                    "Skill_missing": generate_skill_gaps(analysis),
+                })
+        # career = career_encoder.inverse_transform([career_pred])[0]
         max_score = 110  # approximate max
         employability = int((reg.predict(input_df)[0] / max_score) * 100)
-        recommendations = generate_recommendations(
-            input_df,
-            career,
-            data.get("faculty")
-        )
-
+        interaction_id = initialize_chat({"career": career,
+                                          "career_score": career_score,
+                                          "employability_score": round(float(employability), 2),
+                                          "top_career_matches": top_career_matches,
+                                          "recommendations": generate_feedback(
+                                              career,
+                                              employability,
+                                              best_analysis
+                                          )
+                                          })
         return jsonify({
             "career": career,
+            "career_score": career_score,
             "employability_score": round(float(employability), 2),
+            "top_career_matches": top_career_matches,
             "recommendations": generate_feedback(
                 career,
                 employability,
-                recommendations
-            )
+                best_analysis
+            ),
+            "kwags": interaction_id
         })
 
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/chat', methods=['POST'])
+def chat_endpoint():
+    try:
+        data = request.get_json()
+        user_input = data.get("input", "")
+        interaction_id = data.get("interaction_id", "")
+        if not user_input:
+            return jsonify({"error": "Input is required"}), 400
+
+        return jsonify(chat(user_input, interaction_id))
+
+    except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
