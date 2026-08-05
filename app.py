@@ -707,16 +707,16 @@ def predict():
         # career = career_encoder.inverse_transform([career_pred])[0]
         max_score = 110  # approximate max
         employability = int((reg.predict(input_df)[0] / max_score) * 100)
-        interaction_id = initialize_chat({"career": career,
-                                          "career_score": career_score,
-                                          "employability_score": round(float(employability), 2),
-                                          "top_career_matches": top_career_matches,
-                                          "recommendations": generate_feedback(
-                                              career,
-                                              employability,
-                                              best_analysis
-                                          )
-                                          })
+        # interaction_id = initialize_chat({"career": career,
+        #                                   "career_score": career_score,
+        #                                   "employability_score": round(float(employability), 2),
+        #                                   "top_career_matches": top_career_matches,
+        #                                   "recommendations": generate_feedback(
+        #                                       career,
+        #                                       employability,
+        #                                       best_analysis
+        #                                   )
+        #                                   })
         return jsonify({
             "career": career,
             "career_score": career_score,
@@ -727,10 +727,20 @@ def predict():
                 employability,
                 best_analysis
             ),
-            "kwags": interaction_id
         })
 
     except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+    
+@app.route('/initializechat', methods=['POST'])
+def initialize_chat_endpoint():
+    try:
+        data = request.get_json()
+        interaction_id = initialize_chat(data)
+        return jsonify({"interaction_id": interaction_id})
+    except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
